@@ -1,0 +1,298 @@
+quick start doc in /usr/share/doc/postgresql/README.rpm-dist
+
+    yum install -y postgresql postgresql-server postgresql-libs postgresql-devel postgresql-contrib
+    yum install pgadmin3 -y
+
+
+-- under user postgres :
+initdb
+
+-- # old way (as root):
+--postgresql-setup --initdb
+
+systemctl start postgresql.service
+
+systemctl enable postgresql.service
+
+
+su - postgres
+
+
+psql
+
+ALTER USER postgres WITH PASSWORD 'root00';
+
+Sécurisation:
+
+vi /var/lib/pgsql/data/pg_hba.conf
+
+Modifier le fichier en remplaçant ident sameuser par md5 afin d'obtenir les lignes suivantes : 
+local   all         all                               md5
+....
+
+
+systemctl restart postgresql.service
+
+
+
+
+
+Création des utilisateurs :
+---------------------------
+
+under psql as postgres user :
+postgres=# create group smartgroup;
+postgres=# create user smartuser with password 'smart' in group smartgroup LOGIN;
+
+or 
+CREATE ROLE smartuser PASSWORD 'md5ab6e04acb960dc37599592bfe3a33215' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT LOGIN;
+-- :)
+
+
+you could also 
+delete user smartuser;
+
+
+postgres=# 
+postgres=# \du
+                                      Liste des rôles
+ Nom du rôle |                          Attributs                           |  Membre de   
+-------------+--------------------------------------------------------------+--------------
+ postgres    | Superutilisateur, Créer un rôle, Créer une base, Réplication | {}
+ smartgroup  | Ne peut pas se connecter                                     | {}
+ smartuser   |                                                              | {smartgroup}
+
+
+
+
+Création des tablespaces :
+--------------------------
+
+
+as any user, create the data directory :
+mkdir /save/data
+chmod 777 /save/data
+
+
+as postgres user :
+
+mkdir -p /save/data/pgdata/smart_tablespace
+
+
+
+as root :
+
+semanage fcontext -a -t postgresql_db_t "/save/data/pgdata(/.*)?"
+-- If you already created the directory, follow that with:
+restorecon -R /save/data/pgdata
+
+
+
+under psql as postgres user :
+
+CREATE TABLESPACE smart_tablespace LOCATION '/save/data/pgdata/smart_tablespace';
+
+
+
+
+
+
+SELECT spcname FROM pg_tablespace;  -- shows tablespaces
+The psql program’s \db meta-command is also useful for listing the existing tablespaces.
+
+
+creéation de la base de donnée:
+-------------------------------
+
+postgres=# CREATE DATABASE smartdatabase OWNER smartgroup TABLESPACE smart_tablespace;
+
+
+
+ALTER DATABASE name OWNER TO new_owner
+ALTER DATABASE name SET TABLESPACE new_tablespace
+SET configuration_parameter { TO | = } { value | DEFAULT }
+SET configuration_parameter FROM CURRENT
+
+
+
+-bash-4.3$ createdb --help
+createdb crée une base de données PostgreSQL.
+
+Usage :
+  createdb [OPTION]... [NOMBASE] [DESCRIPTION]
+
+Options :
+  -D, --tablespace=TABLESPACE   tablespace par défaut de la base de données
+  -e, --echo                    affiche les commandes envoyées au serveur
+  -E, --encoding=ENC            encodage de la base de données
+  -l, --locale=LOCALE           paramètre de la locale pour la base de
+                                données
+      --lc-collate=LOCALE       paramètre LC_COLLATE pour la base de données
+      --lc-ctype=LOCALE         paramètre LC_CTYPE pour la base de données
+  -O, --owner=PROPRIÉTAIRE      nom du propriétaire de la nouvelle base de
+                                données
+  -T, --template=MODÈLE         base de données modèle à copier
+  -V, --version              affiche la version puis quitte
+  -?, --help                 affiche cette aide puis quitte
+
+Options de connexion :
+  -h, --host=HOTE               hôte du serveur de bases de données
+                                ou répertoire des sockets
+  -p, --port=PORT               port du serveur de bases de données
+  -U, --username=NOMUTILISATEUR nom d'utilisateur pour la connexion
+  -w, --no-password             empêche la demande d'un mot de passe
+  -W, --password                force la demande d'un mot de passe
+  --maintenance-db=NOM_BASE    indique une autre base par défaut
+
+Par défaut, la base de donnée créée porte le nom de l'utilisateur courant.
+
+Rapporter les bogues à <pgsql-bugs@postgresql.org>.
+
+
+
+ Firewall
+
+PostgreSQL operates on port 5432 (or whatever else you set in your postgresql.conf). In firewalld you can open it like this:
+
+$ # make it last after reboot
+$ firewall-cmd --permanent --add-port=5432/tcp
+$ # change runtime configuration
+$ firewall-cmd --add-port=5432/tcp
+
+In case of iptables:
+
+$ iptables -A INPUT -p tcp --dport 5432 -m state --state NEW,ESTABLISHED -j ACCEPT
+
+Bear in mind that you probably don't want to open your database server to the whole world. 
+
+
+
+
+
+initialisation de la langue :
+initdb --locale=fr_FR
+initdb --locale=fr_FR.UTF-8
+initdb --locale=ISO_8859_6  -- for arabic
+...
+
+
+
+
+
+CREATE TABLE test1 (
+a text COLLATE "de_DE",
+b text COLLATE "es_ES",
+...
+);
+
+
+
+
+
+SELinux is preventing /usr/bin/postgres from create access on the file 12967.
+
+*****  Plugin catchall (100. confidence) suggests   **************************
+
+If vous pensez que postgres devrait être autorisé à accéder create sur 12967 file par défaut.
+Then vous devriez rapporter ceci en tant qu'anomalie.
+Vous pouvez générer un module de stratégie local pour autoriser cet accès.
+Do
+autoriser cet accès pour le moment en exécutant :
+# grep postgres /var/log/audit/audit.log | audit2allow -M mypol
+# semodule -i mypol.pp
+
+Additional Information:
+Source Context                system_u:system_r:postgresql_t:s0
+Target Context                system_u:object_r:etc_runtime_t:s0
+Target Objects                12967 [ file ]
+Source                        postgres
+Source Path                   /usr/bin/postgres
+Port                          <Unknown>
+Host                          localhost.localdomain
+Source RPM Packages           postgresql-server-9.3.5-5.fc21.x86_64
+Target RPM Packages           
+Policy RPM                    selinux-policy-3.13.1-103.fc21.noarch
+Selinux Enabled               True
+Policy Type                   targeted
+Enforcing Mode                Permissive
+Host Name                     localhost.localdomain
+Platform                      Linux localhost.localdomain 3.18.3-201.fc21.x86_64
+                              #1 SMP Mon Jan 19 15:59:31 UTC 2015 x86_64 x86_64
+Alert Count                   1
+First Seen                    2015-02-23 09:51:02 CET
+Last Seen                     2015-02-23 09:51:02 CET
+Local ID                      6a63858b-90da-4007-b15f-3785e12396de
+
+Raw Audit Messages
+type=AVC msg=audit(1424681462.737:404): avc:  denied  { create } for  pid=4369 comm="postgres" name="12967" scontext=system_u:system_r:postgresql_t:s0 tcontext=system_u:object_r:etc_runtime_t:s0 tclass=file permissive=1
+
+
+type=AVC msg=audit(1424681462.737:404): avc:  denied  { write } for  pid=4369 comm="postgres" path="/save/data/postgres/smart_tablespace/PG_9.3_201306121/16393/12967" dev="sda1" ino=20578311 scontext=system_u:system_r:postgresql_t:s0 tcontext=system_u:object_r:etc_runtime_t:s0 tclass=file permissive=1
+
+
+type=SYSCALL msg=audit(1424681462.737:404): arch=x86_64 syscall=open success=yes exit=EXFULL a0=7fffc288fea0 a1=c2 a2=180 a3=10041 items=0 ppid=3102 pid=4369 auid=4294967295 uid=26 gid=26 euid=26 suid=26 fsuid=26 egid=26 sgid=26 fsgid=26 tty=(none) ses=4294967295 comm=postgres exe=/usr/bin/postgres subj=system_u:system_r:postgresql_t:s0 key=(null)
+
+Hash: postgres,postgresql_t,etc_runtime_t,file,create
+
+
+
+
+SELinux
+
+If you have SELinux enforced, you may run into trouble when trying to do some non-standard configuration. For example if you would like to change a location of your database, you have to add new context mapping for the new location:
+
+$ semanage fcontext -a -t postgresql_db_t "/my/new/location(/.*)?"
+
+If default port doesn't work for you, you may need to map postgre's port type to your desired port:
+
+$ semanage port -a -t postgresql_port_t -p tcp 5433
+
+If you install a webapp that wants to communicate with PostgreSQL via TCP/IP, you will have to tell SELinux to allow this on the webserver host:
+
+# setsebool -P httpd_can_network_connect_db on
+
+
+
+semanage fcontext -a -t postgresql_db_t "/save/data/postgres/smart_tablespace(/.*)?"
+
+-- la vraie solution
+chcon -v --type=postgresql_db_t -R /save/data/pgdata
+
+PGPASSWORD=smart psql --user smartuser -d smartdatabase
+
+
+
+CREATE TABLESPACE reservation_tablespace LOCATION '/save/data/postgres/reservation_tablespace';
+
+postgres=# create group reservationgroup;
+
+
+CREATE USER reservation WITH PASSWORD 'reservation' in group reservationgroup LOGIN;
+
+CREATE ROLE smartuser PASSWORD 'md5ab6e04acb960dc37599592bfe3a33215' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT LOGIN;
+
+postgres=# create user smartuser with password 'smart' in group smartgroup LOGIN;
+
+CREATE DATABASE reservationdatabase OWNER reservationgroup TABLESPACE reservation_tablespace;
+
+
+PGPASSWORD=reservation psql --user reservation -d reservationdatabase
+
+
+
+# probleme de droits pour lire les tables => 
+--------------------------------------------
+mitc_db=> select * from roles ;
+ERROR:  permission denied for relation roles
+mitc_db=> \q
+
+ hchost  # PGPASSWORD=root00 psql -U postgres -h localhost -p 5432 -d mitc_db
+psql (9.2.24)
+Type "help" for help.
+
+mitc_db=# GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public to mitc;
+GRANT
+mitc_db=# GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public to mitc;
+GRANT
+mitc_db=# GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public to mitc;
+GRANT
